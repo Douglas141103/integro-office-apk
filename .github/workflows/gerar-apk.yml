@@ -1,0 +1,224 @@
+name: Gerar APK Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  build:
+    name: Compilar APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Criar projeto Android WebView
+        shell: bash
+        run: |
+          rm -rf app
+          mkdir -p app/src/main/java/br/com/integro/office
+          mkdir -p app/src/main/assets/www
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "INTEGROOfficeAPK"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'br.com.integro.office'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'br.com.integro.office'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">INTEGRO Office</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:windowNoTitle">true</item>
+                  <item name="android:windowActionBar">false</item>
+                  <item name="android:colorAccent">#6ABE30</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#0078D7" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#6ABE30" android:pathData="M16,16h76v76h-76z"/>
+              <path android:fillColor="#185ABD" android:pathData="M25,25h58v58h-58z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M35,70h8v-32h-8zM49,70h7v-18l14,18h7v-32h-7v19l-14,-19h-7z"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+              <application android:allowBackup="true" android:icon="@drawable/ic_launcher" android:label="INTEGRO Office" android:theme="@style/AppTheme" android:usesCleartextTraffic="true">
+                  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/br/com/integro/office/MainActivity.java <<'EOF'
+          package br.com.integro.office;
+
+          import android.Manifest;
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import android.content.ClipData;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private static final int FILE_CHOOSER = 1001;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  if (android.os.Build.VERSION.SDK_INT >= 23) {
+                      requestPermissions(new String[]{Manifest.permission.CAMERA}, 10);
+                  }
+                  webView = new WebView(this);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setUseWideViewPort(true);
+                  s.setLoadWithOverviewMode(true);
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient(){
+                      public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params){
+                          filePathCallback = callback;
+                          Intent intent = params.createIntent();
+                          intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                          try { startActivityForResult(Intent.createChooser(intent, "Escolha arquivo"), FILE_CHOOSER); }
+                          catch(Exception e){ filePathCallback=null; Toast.makeText(MainActivity.this,"Não foi possível abrir arquivos",Toast.LENGTH_LONG).show(); return false; }
+                          return true;
+                      }
+                  });
+                  setContentView(webView);
+                  webView.loadUrl("file:///android_asset/www/index.html");
+              }
+
+              protected void onActivityResult(int requestCode, int resultCode, Intent data){
+                  super.onActivityResult(requestCode,resultCode,data);
+                  if(requestCode==FILE_CHOOSER && filePathCallback!=null){
+                      Uri[] result=null;
+                      if(resultCode==RESULT_OK && data!=null){
+                          ClipData clip=data.getClipData();
+                          if(clip!=null){ result=new Uri[clip.getItemCount()]; for(int i=0;i<clip.getItemCount();i++) result[i]=clip.getItemAt(i).getUri(); }
+                          else if(data.getData()!=null){ result=new Uri[]{data.getData()}; }
+                      }
+                      filePathCallback.onReceiveValue(result);
+                      filePathCallback=null;
+                  }
+              }
+
+              public void onBackPressed(){ if(webView!=null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
+          }
+          EOF
+
+          cat > app/src/main/assets/www/index.html <<'EOF'
+          <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>INTEGRO Office</title><style>
+          *{box-sizing:border-box}body{margin:0;font-family:Arial,Segoe UI,sans-serif;background:linear-gradient(135deg,#0078d7,#6abe30);height:100vh;overflow:hidden;color:#111}.desk{height:calc(100vh - 54px);padding:14px;overflow:auto}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.app{background:#ffffffee;border-radius:16px;padding:14px;min-height:105px;box-shadow:0 10px 30px #0004;text-align:center;font-weight:800}.app b{font-size:34px;display:block;margin-bottom:8px}.task{position:fixed;bottom:0;left:0;right:0;height:54px;background:#142033;color:white;display:flex;align-items:center;gap:8px;padding:7px}.task button{height:38px;border:0;border-radius:9px;padding:0 12px;font-weight:800}.win{display:none;position:fixed;inset:8px 8px 62px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px #0006}.win.show{display:flex;flex-direction:column}.bar{height:44px;background:#f1f5f9;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-weight:900;border-bottom:1px solid #d1d5db}.bar button{border:0;background:#e5e7eb;border-radius:8px;height:32px;min-width:40px}.content{flex:1;overflow:auto;padding:12px;background:#f8fafc}.toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.toolbar button,.toolbar input{height:36px;border:1px solid #cbd5e1;border-radius:8px;padding:0 10px;font-weight:700}.page{background:#fff;min-height:80vh;padding:28px;border-radius:10px;box-shadow:0 2px 15px #0002;outline:none;line-height:1.5}.files{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.file{background:white;border:1px solid #dbe3ee;border-radius:12px;padding:12px;text-align:center;font-weight:800}.file b{font-size:34px;display:block}.sheet{border-collapse:collapse;background:white}.sheet td,.sheet th{border:1px solid #cbd5e1;min-width:90px;height:34px}.sheet input{width:100%;height:100%;border:0;padding:6px}.slide{background:white;border-radius:10px;min-height:360px;padding:30px;box-shadow:0 2px 15px #0002}.toast{position:fixed;left:12px;right:12px;bottom:70px;background:#111827;color:white;border-radius:12px;padding:12px;display:none;font-weight:800}.toast.show{display:block}
+          </style></head><body><main class="desk"><h1 style="color:white">INTEGRO Office</h1><p style="color:white">Aplicativo instalado em APK com HTML interno.</p><section class="grid"><div class="app" onclick="openWin('files')"><b>📁</b>Arquivos</div><div class="app" onclick="openWin('word')"><b>🔵</b>Documento</div><div class="app" onclick="openWin('excel')"><b>🟢</b>Planilha</div><div class="app" onclick="openWin('power')"><b>🟠</b>Slides</div><div class="app" onclick="openWin('viewer')"><b>👁️</b>Leitor</div><div class="app" onclick="openWin('tools')"><b>🧰</b>Utilitários</div></section></main><nav class="task"><button onclick="closeAll()">Início</button><button onclick="saveAll()">Salvar</button><button onclick="document.getElementById('picker').click()">Galeria/Arquivos</button></nav><input id="picker" type="file" accept="image/*,.txt,.csv,.html" multiple hidden onchange="importFiles(event)">
+          <section class="win" id="files"><div class="bar">📁 Gerenciador de Arquivos <button onclick="closeWin('files')">X</button></div><div class="content"><div class="toolbar"><button onclick="newFile()">Novo</button><button onclick="document.getElementById('picker').click()">Importar</button><button onclick="clearStore()">Limpar</button></div><div class="files" id="fileList"></div></div></section>
+          <section class="win" id="word"><div class="bar">🔵 Documento <button onclick="closeWin('word')">X</button></div><div class="content"><div class="toolbar"><button onclick="cmd('bold')"><b>N</b></button><button onclick="cmd('italic')"><i>I</i></button><button onclick="cmd('underline')"><u>S</u></button><button onclick="cmd('justifyCenter')">Centro</button><button onclick="cmd('insertUnorderedList')">Lista</button><button onclick="saveDoc()">Salvar</button></div><article id="doc" class="page" contenteditable="true"><h1>Meu documento</h1><p>Digite seu texto aqui.</p></article></div></section>
+          <section class="win" id="excel"><div class="bar">🟢 Planilha <button onclick="closeWin('excel')">X</button></div><div class="content"><div class="toolbar"><button onclick="fillSheet()">Exemplo</button><button onclick="saveSheet()">Salvar CSV</button></div><table class="sheet" id="sheet"></table></div></section>
+          <section class="win" id="power"><div class="bar">🟠 Apresentação <button onclick="closeWin('power')">X</button></div><div class="content"><div class="toolbar"><button onclick="addSlide()">Novo slide</button><button onclick="saveSlides()">Salvar</button></div><div id="slide" class="slide" contenteditable="true"><h1>Minha apresentação</h1><p>Toque para editar o slide.</p></div></div></section>
+          <section class="win" id="viewer"><div class="bar">👁️ Leitor <button onclick="closeWin('viewer')">X</button></div><div class="content" id="view"><h2>Leitor pronto</h2><p>Importe ou abra arquivos salvos.</p></div></section>
+          <section class="win" id="tools"><div class="bar">🧰 Utilitários <button onclick="closeWin('tools')">X</button></div><div class="content"><h2>Calculadora</h2><input id="calc" style="width:100%;height:45px;font-size:22px;text-align:right"><div class="toolbar"><button onclick="calc.value+='1'">1</button><button onclick="calc.value+='2'">2</button><button onclick="calc.value+='3'">3</button><button onclick="calc.value+='+'">+</button><button onclick="calc.value+='-'">-</button><button onclick="calc.value+='*'">x</button><button onclick="calc.value+='/'">÷</button><button onclick="calc.value=eval(calc.value)">=</button><button onclick="calc.value=''">C</button></div><h2>Notas</h2><textarea id="notes" style="width:100%;height:220px;border:1px solid #cbd5e1;border-radius:10px;padding:10px"></textarea><button onclick="saveTools()">Salvar notas</button></div></section><div class="toast" id="toast"></div>
+          <script>
+          let store=JSON.parse(localStorage.getItem('integro')||'{"files":[]}');function openWin(id){document.getElementById(id).classList.add('show');if(id==='files')renderFiles()}function closeWin(id){document.getElementById(id).classList.remove('show')}function closeAll(){document.querySelectorAll('.win').forEach(w=>w.classList.remove('show'))}function toast(t){let e=document.getElementById('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2200)}function save(){localStorage.setItem('integro',JSON.stringify(store))}function cmd(c){document.execCommand(c,false,null)}function saveDoc(){store.files.push({name:'Documento.html',type:'doc',content:doc.innerHTML});save();toast('Documento salvo')}function buildSheet(){let h='<tr><th></th>';for(let c of 'ABCDE')h+='<th>'+c+'</th>';h+='</tr>';for(let r=1;r<=12;r++){h+='<tr><th>'+r+'</th>';for(let c of 'ABCDE')h+='<td><input></td>';h+='</tr>'}sheet.innerHTML=h}function fillSheet(){let cells=[...sheet.querySelectorAll('input')];['Aluno','Nota 1','Nota 2','Média','Ana','8','9','8,5','João','7','8','7,5'].forEach((v,i)=>{if(cells[i])cells[i].value=v})}function saveSheet(){let rows=[];sheet.querySelectorAll('tr').forEach(tr=>rows.push([...tr.querySelectorAll('input,th')].map(x=>x.value||x.textContent).join(',')));store.files.push({name:'Planilha.csv',type:'sheet',content:rows.join('\n')});save();toast('Planilha salva')}function addSlide(){slide.innerHTML='<h1>Novo slide</h1><p>Digite o conteúdo.</p>'}function saveSlides(){store.files.push({name:'Apresentacao.html',type:'slides',content:slide.innerHTML});save();toast('Apresentação salva')}function renderFiles(){fileList.innerHTML='';store.files.forEach((f,i)=>{let d=document.createElement('div');d.className='file';d.innerHTML='<b>'+({doc:'📘',sheet:'📊',slides:'🖼️',img:'🖼️',txt:'📄'}[f.type]||'📄')+'</b>'+f.name;d.onclick=()=>openFile(i);fileList.appendChild(d)})}function openFile(i){let f=store.files[i];openWin('viewer');if(f.type==='img')view.innerHTML='<h2>'+f.name+'</h2><img src="'+f.content+'" style="max-width:100%;border-radius:12px">';else view.innerHTML='<h2>'+f.name+'</h2><pre style="white-space:pre-wrap">'+(f.content||'')+'</pre>'}function newFile(){let n=prompt('Nome do arquivo','Novo texto.txt');if(n){store.files.push({name:n,type:'txt',content:''});save();renderFiles()}}function importFiles(e){[...e.target.files].forEach(file=>{let r=new FileReader();r.onload=x=>{store.files.push({name:file.name,type:file.type.startsWith('image/')?'img':'txt',content:x.target.result});save();renderFiles();toast('Arquivo importado')};if(file.type.startsWith('image/'))r.readAsDataURL(file);else r.readAsText(file)});e.target.value=''}function saveTools(){store.notes=notes.value;save();toast('Notas salvas')}function saveAll(){saveDoc();saveSheet();saveSlides();saveTools()}function clearStore(){if(confirm('Apagar arquivos internos?')){store={files:[]};save();renderFiles()}}buildSheet();notes.value=store.notes||'';
+          </script></body></html>
+          EOF
+
+      - name: Gerar APK debug
+        run: gradle assembleDebug
+
+      - name: Enviar APK gerado
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTEGRO-Office-APK
+          path: app/build/outputs/apk/debug/*.apk
